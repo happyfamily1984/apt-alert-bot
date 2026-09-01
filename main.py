@@ -67,15 +67,10 @@ def get_target_ymds():
     return ymds
 
 def fetch_data(base_url, lawd_cd, deal_ymd):
-    params = {
-        "serviceKey": API_KEY,
-        "LAWD_CD": lawd_cd,
-        "DEAL_YMD": deal_ymd,
-        "numOfRows": "200"
-    }
+    # API 키 왜곡을 막는 검증된 직접 URL 조합 방식
+    req_url = f"{base_url}?serviceKey={API_KEY}&LAWD_CD={lawd_cd}&DEAL_YMD={deal_ymd}&numOfRows=500"
     try:
-        # http 통신으로 SSL 타임아웃 방지
-        res = requests.get(base_url, params=params, timeout=10)
+        res = requests.get(req_url, timeout=15)
         data = xmltodict.parse(res.content)
         items = data.get("response", {}).get("body", {}).get("items", {}).get("item", [])
         if isinstance(items, dict):
@@ -104,9 +99,8 @@ def run():
     now_kst = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
     current_time_str = now_kst.strftime("%Y년 %m월 %d일 %H시")
 
-    # http 엔드포인트 사용
-    url_trade = "http://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
-    url_rent = "http://apis.data.go.kr/1613000/RTMSDataSvcAptRent/getRTMSDataSvcAptRent"
+    url_trade = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
+    url_rent = "https://apis.data.go.kr/1613000/RTMSDataSvcAptRent/getRTMSDataSvcAptRent"
 
     new_count = 0
 
@@ -124,7 +118,7 @@ def run():
                         msg = (
                             f"🚨 <b>[매매 실거래] {apt['display_name']} ({apt_name})</b>\n"
                             f"• 계약일: {item.get('dealYear')}년 {item.get('dealMonth')}월 {item.get('dealDay')}일\n"
-                            f"• 매매금액: <b>{deal_amount}만원</b>\n"
+                            f"• 거래금액: <b>{deal_amount}만원</b>\n"
                             f"• 전용면적: {item.get('excluUseAr')}㎡ ({item.get('floor')}층)\n"
                             f"• 거래유형: {item.get('dealingGbn', '정보없음')}"
                         )
