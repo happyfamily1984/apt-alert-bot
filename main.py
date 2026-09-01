@@ -8,7 +8,7 @@ API_KEY = os.environ.get("DATA_GO_KR_API_KEY", "").strip()
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 
-# 모니터링 단지 3곳 (정확한 시군구코드 및 매칭 키워드)
+# 모니터링 관심단지 3곳
 TARGET_APTS = [
     {
         "keywords": ["건영"],
@@ -88,7 +88,8 @@ def is_matched_apt(apt_name, keywords):
 def run():
     sent_history = load_history()
     target_ymds = get_target_ymds()
-    print(f"조회 대상 년월: {target_ymds}")
+    now_kst = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
+    current_time_str = now_kst.strftime("%Y년 %m월 %d일 %H시")
 
     url_trade = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
     url_rent = "https://apis.data.go.kr/1613000/RTMSDataSvcAptRent/getRTMSDataSvcAptRent"
@@ -138,6 +139,15 @@ def run():
                         send_telegram_message(msg)
                         sent_history.add(rent_id)
                         new_count += 1
+
+    # ── 신규 거래가 없을 경우 정기 안내 메시지 전송 ──
+    if new_count == 0:
+        no_trade_msg = (
+            f"📢 <b>[{current_time_str} 정기 브리핑]</b>\n"
+            f"지정하신 3개 관심단지에\n"
+            f"새로 등록된 매매/전월세 실거래 내역이 없습니다."
+        )
+        send_telegram_message(no_trade_msg)
 
     save_history(sent_history)
     print(f"조회 완료: 신규 전송 {new_count}건")
