@@ -1,0 +1,40 @@
+name: Apt Real Estate Alert
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # 한국 시간 매일 09:00
+    - cron: '0 9 * * *'  # 한국 시간 매일 18:00
+  workflow_dispatch:     # 수동 테스트 실행 버튼
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 파이썬 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 라이브러리 설치
+        run: |
+          pip install -r requirements.txt
+
+      - name: 실거래가 조회 및 알림 전송
+        env:
+          DATA_GO_KR_API_KEY: ${{ secrets.DATA_GO_KR_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python main.py
+
+      - name: 전송 이력(sent_trades.json) 저장 및 커밋
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add sent_trades.json
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update trade history" && git push)
