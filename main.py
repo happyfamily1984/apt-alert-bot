@@ -16,12 +16,13 @@ TARGET_APTS = [
         "lawd_cd": "11470"   # 서울 양천구
     },
     {
-        "keywords": ["금호어울림", "금호", "베르티스"],
+        "keywords": ["금호어울림베르티스", "금호어울림"],
         "display_name": "여주역 금호어울림베르티스",
         "lawd_cd": "41670"   # 경기 여주시
     },
     {
-        "keywords": ["한양목련", "목련한양", "한양", "목련"],
+        # 군포 산본 한양목련 단지만 정확히 타겟팅 (수리, 백두, 우방 등 제외)
+        "keywords": ["목련(한양)", "한양(목련)", "한양목련", "목련한양"],
         "display_name": "산본 한양목련아파트",
         "lawd_cd": "41410"   # 경기 군포시 (산본동)
     }
@@ -51,7 +52,7 @@ def send_telegram_message(text):
         print(f"전송 실패: {e}")
 
 def get_target_ymds():
-    # 최근 3개월 조회 (7월, 8월, 9월)
+    # 최근 3개월 조회
     ymds = []
     now = datetime.datetime.now()
     cur_year = now.year
