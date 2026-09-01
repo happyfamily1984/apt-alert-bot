@@ -67,9 +67,15 @@ def get_target_ymds():
     return ymds
 
 def fetch_data(base_url, lawd_cd, deal_ymd):
-    req_url = f"{base_url}?serviceKey={API_KEY}&LAWD_CD={lawd_cd}&DEAL_YMD={deal_ymd}&numOfRows=500"
+    params = {
+        "serviceKey": API_KEY,
+        "LAWD_CD": lawd_cd,
+        "DEAL_YMD": deal_ymd,
+        "numOfRows": "200"
+    }
     try:
-        res = requests.get(req_url, timeout=15)
+        # http 통신으로 SSL 타임아웃 방지
+        res = requests.get(base_url, params=params, timeout=10)
         data = xmltodict.parse(res.content)
         items = data.get("response", {}).get("body", {}).get("items", {}).get("item", [])
         if isinstance(items, dict):
@@ -98,8 +104,9 @@ def run():
     now_kst = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
     current_time_str = now_kst.strftime("%Y년 %m월 %d일 %H시")
 
-    url_trade = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
-    url_rent = "https://apis.data.go.kr/1613000/RTMSDataSvcAptRent/getRTMSDataSvcAptRent"
+    # http 엔드포인트 사용
+    url_trade = "http://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
+    url_rent = "http://apis.data.go.kr/1613000/RTMSDataSvcAptRent/getRTMSDataSvcAptRent"
 
     new_count = 0
 
