@@ -10,8 +10,8 @@ CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 TARGET_APTS = [
     {"name": "건영", "display_name": "목동 건영아파트", "lawd_cd": "11470"},               # 서울 양천구
-    {"name": "금호어울림", "display_name": "여주역 금호어울림베르티스", "lawd_cd": "41670"}, # 경기 여주시 (매칭 완화)
-    {"name": "목련", "display_name": "한양목련아파트", "lawd_cd": "41173"}                 # 경기 안양시 동안구 (매칭 완화)
+    {"name": "금호", "display_name": "여주역 금호어울림베르티스", "lawd_cd": "41670"},     # 경기 여주시
+    {"name": "목련", "display_name": "한양목련아파트", "lawd_cd": "41173"}                 # 경기 안양시 동안구
 ]
 
 HISTORY_FILE = "sent_trades.json"
@@ -33,24 +33,32 @@ def send_telegram_message(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"}
     try:
-        requests.post(url, json=payload, timeout=10)
+        res = requests.post(url, json=payload, timeout=10)
+        print(f"텔레그램 전송 응답: {res.status_code}")
     except Exception as e:
         print(f"전송 실패: {e}")
 
 def get_target_ymds():
-    # 당월 및 전월 (YYYYMM) 목록 생성
+    # 최근 3개월 조회 (데이터 확실한 확보 목적)
+    ymds = []
     now = datetime.datetime.now()
-    this_month = now.strftime("%Y%m")
+    cur_year = now.year
+    cur_month = now.month
     
-    first_day = now.replace(day=1)
-    prev_month_day = first_day - datetime.timedelta(days=1)
-    prev_month = prev_month_day.strftime("%Y%m")
-    
-    return [prev_month, this_month]
+    for i in range(3):
+        m = cur_month - i
+        y = cur_year
+        if m <= 0:
+            m += 12
+            y -= 1
+        ymds.append(f"{y}{str(m).zfill(2)}")
+    return ymds
 
 def run():
-    sent_history = load_history()
+    # 테스트를 위해 히스토리 초기화(모든 건 전송)
+    sent_history = set()
     target_ymds = get_target_ymds()
+    print(f"조회 대상 년월: {target_ymds}")
 
     url_trade = "http://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
     url_rent = "http://apis.data.go.kr/1613000/RTMSDataSvcAptRent/getRTMSDataSvcAptRent"
@@ -59,9 +67,9 @@ def run():
 
     for deal_ymd in target_ymds:
         for apt in TARGET_APTS:
-            # 1. 매매 실거래가 조회
+            # 1. 매매 실거래가
             try:
-                res_trade = requests.get(url_trade, params={"serviceKey": API_KEY, "LAWD_CD": apt["lawd_cd"], "DEAL_YMD": deal_ymd, "numOfRows": "200"}, timeout=10)
+                res_trade = requests.get(url_trade, params={"serviceKey": API_KEY, "LAWD_CD": apt["lawd_cd"], "DEAL_YMD": deal_ymd, "numOfRows": "500"}, timeout=10)
                 data_trade = xmltodict.parse(res_trade.content)
                 items_trade = data_trade.get("response", {}).get("body", {}).get("items", {}).get("item", [])
                 if isinstance(items_trade, dict):
@@ -70,6 +78,7 @@ def run():
                 for item in items_trade:
                     apt_name = str(item.get("aptNm", ""))
                     if apt["name"] in apt_name:
+                        print(f"매매 발견: {apt_name} ({deal_ymd})")
                         trade_id = f"TRADE_{apt['lawd_cd']}_{apt_name}_{item.get('dealYear')}{str(item.get('dealMonth')).zfill(2)}{str(item.get('dealDay')).zfill(2)}_{item.get('floor')}_{str(item.get('dealAmount', '')).strip()}"
                         if trade_id not in sent_history:
                             msg = (
@@ -85,9 +94,9 @@ def run():
             except Exception as e:
                 print(f"[{apt['display_name']}] 매매 에러 ({deal_ymd}): {e}")
 
-            # 2. 전월세 실거래가 조회
+            # 2. 전월세 실거래가
             try:
-                res_rent = requests.get(url_rent, params={"serviceKey": API_KEY, "LAWD_CD": apt["lawd_cd"], "DEAL_YMD": deal_ymd, "numOfRows": "200"}, timeout=10)
+                res_rent = requests.get(url_rent, params={"serviceKey": API_KEY, "LAWD_CD": apt["lawd_cd"], "DEAL_YMD": deal_ymd, "numOfRows": "500"}, timeout=10)
                 data_rent = xmltodict.parse(res_rent.content)
                 items_rent = data_rent.get("response", {}).get("body", {}).get("items", {}).get("item", [])
                 if isinstance(items_rent, dict):
@@ -96,6 +105,7 @@ def run():
                 for item in items_rent:
                     apt_name = str(item.get("aptNm", ""))
                     if apt["name"] in apt_name:
+                        print(f"전월세 발견: {apt_name} ({deal_ymd})")
                         monthly = str(item.get("monthlyAmount", "0")).strip()
                         rent_type = "월세" if monthly not in ["0", ""] else "전세"
                         deposit = str(item.get("deposit", "")).strip()
@@ -118,7 +128,7 @@ def run():
                 print(f"[{apt['display_name']}] 전월세 에러 ({deal_ymd}): {e}")
 
     save_history(sent_history)
-    print(f"조회 완료: 신규 전송 {new_count}건")
+    print(f"최종 결과: 총 {new_count}건 텔레그램 발송 완료")
 
 if __name__ == "__main__":
     run()
