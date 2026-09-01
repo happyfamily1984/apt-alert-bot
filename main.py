@@ -21,7 +21,6 @@ TARGET_APTS = [
         "lawd_cd": "41670"   # 경기 여주시
     },
     {
-        # 군포 산본 한양목련 단지만 정확히 타겟팅 (수리, 백두, 우방 등 제외)
         "keywords": ["목련(한양)", "한양(목련)", "한양목련", "목련한양"],
         "display_name": "산본 한양목련아파트",
         "lawd_cd": "41410"   # 경기 군포시 (산본동)
@@ -52,7 +51,7 @@ def send_telegram_message(text):
         print(f"전송 실패: {e}")
 
 def get_target_ymds():
-    # 최근 3개월 조회
+    # 최근 3개월 조회 (YYYYMM)
     ymds = []
     now = datetime.datetime.now()
     cur_year = now.year
@@ -88,6 +87,11 @@ def is_matched_apt(apt_name, keywords):
             return True
     return False
 
+def clean_val(val):
+    if not val:
+        return "0"
+    return str(val).replace(",", "").strip()
+
 def run():
     sent_history = load_history()
     target_ymds = get_target_ymds()
@@ -106,12 +110,14 @@ def run():
             for item in items_trade:
                 apt_name = str(item.get("aptNm", ""))
                 if is_matched_apt(apt_name, apt["keywords"]):
-                    trade_id = f"TRADE_{apt['lawd_cd']}_{apt_name}_{item.get('dealYear')}{str(item.get('dealMonth')).zfill(2)}{str(item.get('dealDay')).zfill(2)}_{item.get('floor')}_{str(item.get('dealAmount', '')).strip()}"
+                    deal_amount = clean_val(item.get("dealAmount"))
+                    trade_id = f"TRADE_{apt['lawd_cd']}_{apt_name}_{item.get('dealYear')}{str(item.get('dealMonth')).zfill(2)}{str(item.get('dealDay')).zfill(2)}_{item.get('floor')}_{deal_amount}"
+                    
                     if trade_id not in sent_history:
                         msg = (
                             f"🚨 <b>[매매 실거래] {apt['display_name']} ({apt_name})</b>\n"
                             f"• 계약일: {item.get('dealYear')}년 {item.get('dealMonth')}월 {item.get('dealDay')}일\n"
-                            f"• 거래금액: <b>{str(item.get('dealAmount', '')).strip()}만원</b>\n"
+                            f"• 매매금액: <b>{deal_amount}만원</b>\n"
                             f"• 전용면적: {item.get('excluUseAr')}㎡ ({item.get('floor')}층)\n"
                             f"• 거래유형: {item.get('dealingGbn', '정보없음')}"
                         )
@@ -124,19 +130,25 @@ def run():
             for item in items_rent:
                 apt_name = str(item.get("aptNm", ""))
                 if is_matched_apt(apt_name, apt["keywords"]):
-                    monthly = str(item.get("monthlyAmount", "0")).strip()
-                    rent_type = "월세" if monthly not in ["0", ""] else "전세"
-                    deposit = str(item.get("deposit", "")).strip()
-                    rent_id = f"RENT_{apt['lawd_cd']}_{apt_name}_{item.get('dealYear')}{str(item.get('dealMonth')).zfill(2)}{str(item.get('dealDay')).zfill(2)}_{item.get('floor')}_{deposit}_{monthly}"
+                    deposit = clean_val(item.get("deposit"))
+                    monthly_rent = clean_val(item.get("monthlyRent") or item.get("monthlyAmount"))
+                    
+                    is_monthly = monthly_rent not in ["0", "", "None"]
+                    trade_type = "월세" if is_monthly else "전세"
+                    icon = "🔶" if is_monthly else "🔷"
+                    
+                    rent_id = f"RENT_{apt['lawd_cd']}_{apt_name}_{item.get('dealYear')}{str(item.get('dealMonth')).zfill(2)}{str(item.get('dealDay')).zfill(2)}_{item.get('floor')}_{deposit}_{monthly_rent}"
+                    
                     if rent_id not in sent_history:
-                        price_info = f"보증금 {deposit}만원"
-                        if rent_type == "월세":
-                            price_info += f" / 월세 {monthly}만원"
+                        if is_monthly:
+                            price_display = f"보증금 <b>{deposit}만원</b> / 월세 <b>{monthly_rent}만원</b>"
+                        else:
+                            price_display = f"전세보증금 <b>{deposit}만원</b>"
 
                         msg = (
-                            f"📋 <b>[{rent_type} 실거래] {apt['display_name']} ({apt_name})</b>\n"
+                            f"{icon} <b>[{trade_type} 실거래] {apt['display_name']} ({apt_name})</b>\n"
                             f"• 계약일: {item.get('dealYear')}년 {item.get('dealMonth')}월 {item.get('dealDay')}일\n"
-                            f"• 금액: <b>{price_info}</b>\n"
+                            f"• 임대금액: {price_display}\n"
                             f"• 전용면적: {item.get('excluUseAr')}㎡ ({item.get('floor')}층)"
                         )
                         send_telegram_message(msg)
