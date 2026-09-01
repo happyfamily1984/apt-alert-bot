@@ -1,3 +1,5 @@
+import datetime
+import json
 import os
 import requests
 import xmltodict
@@ -6,47 +8,122 @@ API_KEY = os.environ.get("DATA_GO_KR_API_KEY", "").strip()
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 
-print(f"=== 환경변수 확인 ===")
-print(f"TELEGRAM_TOKEN 설정 여부: {'O' if TELEGRAM_TOKEN else 'X'}")
-print(f"CHAT_ID: {CHAT_ID}")
-print(f"API_KEY 앞 5자리: {API_KEY[:5]}*** (총길이: {len(API_KEY)})")
+# 모니터링 단지 3곳 (법정동 시군구코드)
+TARGET_APTS = [
+    {"name": "건영", "display_name": "목동 건영아파트", "lawd_cd": "11470"},               # 서울 양천구
+    {"name": "금호", "display_name": "여주역 금호어울림베르티스", "lawd_cd": "41670"},     # 경기 여주시
+    {"name": "목련", "display_name": "한양목련아파트", "lawd_cd": "41173"}                 # 경기 안양시 동안구
+]
+
+HISTORY_FILE = "sent_trades.json"
+
+def load_history():
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                return set(json.load(f))
+        except Exception:
+            return set()
+    return set()
+
+def save_history(history):
+    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(list(history), f, ensure_ascii=False, indent=2)
 
 def send_telegram_message(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"}
     try:
-        res = requests.post(url, json=payload, timeout=10)
-        print(f"텔레그램 전송 응답 코드: {res.status_code}, 내용: {res.text}")
-        return res.status_code == 200
+        requests.post(url, json=payload, timeout=10)
     except Exception as e:
-        print(f"텔레그램 전송 예외 발생: {e}")
-        return False
+        print(f"전송 실패: {e}")
 
-# 1. 텔레그램 연결 테스트 (무조건 1회 발송)
-send_telegram_message("🤖 <b>[알림봇 연결 성공]</b> 실거래가 조회를 시작합니다.")
-
-# 2. 공공데이터 API 응답 테스트 (양천구 2024년 05월 기준 테스트)
-url_trade = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
-params = {
-    "serviceKey": API_KEY,
-    "LAWD_CD": "11470",
-    "DEAL_YMD": "202405",
-    "numOfRows": "10"
-}
-
-try:
-    res = requests.get(url_trade, params=params, timeout=10)
-    print(f"공공데이터 응답 상태코드: {res.status_code}")
-    print(f"공공데이터 응답 원문 (앞 300자):\n{res.text[:300]}")
+def get_target_ymds():
+    # 최근 3개월 목록 (YYYYMM)
+    ymds = []
+    now = datetime.datetime.now()
+    cur_year = now.year
+    cur_month = now.month
     
-    data = xmltodict.parse(res.content)
-    result_code = data.get("response", {}).get("header", {}).get("resultCode", "")
-    result_msg = data.get("response", {}).get("header", {}).get("resultMsg", "")
-    print(f"API 결과 코드: {result_code}, 메시지: {result_msg}")
-    
-    if result_code == "00":
-        send_telegram_message("✅ <b>[공공데이터 연동 성공]</b> API 데이터가 정상 수신되었습니다.")
-    else:
-        send_telegram_message(f"❌ <b>[API 인증 에러]</b> 코드: {result_code}\n메시지: {result_msg}")
-except Exception as e:
-    print(f"API 호출 중 예외: {e}")
+    for i in range(3):
+        m = cur_month - i
+        y = cur_year
+        if m <= 0:
+            m += 12
+            y -= 1
+        ymds.append(f"{y}{str(m).zfill(2)}")
+    return ymds
+
+def fetch_data(base_url, lawd_cd, deal_ymd):
+    # API 키 왜곡을 방지하기 위한 직접 URL 조합
+    req_url = f"{base_url}?serviceKey={API_KEY}&LAWD_CD={lawd_cd}&DEAL_YMD={deal_ymd}&numOfRows=500"
+    try:
+        res = requests.get(req_url, timeout=15)
+        data = xmltodict.parse(res.content)
+        items = data.get("response", {}).get("body", {}).get("items", {}).get("item", [])
+        if isinstance(items, dict):
+            items = [items]
+        return items
+    except Exception as e:
+        print(f"API 요청 실패 ({lawd_cd}, {deal_ymd}): {e}")
+        return []
+
+def run():
+    sent_history = load_history()
+    target_ymds = get_target_ymds()
+    print(f"조회 대상 년월: {target_ymds}")
+
+    url_trade = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
+    url_rent = "https://apis.data.go.kr/1613000/RTMSDataSvcAptRent/getRTMSDataSvcAptRent"
+
+    new_count = 0
+
+    for deal_ymd in target_ymds:
+        for apt in TARGET_APTS:
+            # 1. 매매 실거래가 조회
+            items_trade = fetch_data(url_trade, apt["lawd_cd"], deal_ymd)
+            for item in items_trade:
+                apt_name = str(item.get("aptNm", ""))
+                if apt["name"] in apt_name:
+                    trade_id = f"TRADE_{apt['lawd_cd']}_{apt_name}_{item.get('dealYear')}{str(item.get('dealMonth')).zfill(2)}{str(item.get('dealDay')).zfill(2)}_{item.get('floor')}_{str(item.get('dealAmount', '')).strip()}"
+                    if trade_id not in sent_history:
+                        msg = (
+                            f"🚨 <b>[매매 실거래] {apt['display_name']} ({apt_name})</b>\n"
+                            f"• 계약일: {item.get('dealYear')}년 {item.get('dealMonth')}월 {item.get('dealDay')}일\n"
+                            f"• 거래금액: <b>{str(item.get('dealAmount', '')).strip()}만원</b>\n"
+                            f"• 전용면적: {item.get('excluUseAr')}㎡ ({item.get('floor')}층)\n"
+                            f"• 거래유형: {item.get('dealingGbn', '정보없음')}"
+                        )
+                        send_telegram_message(msg)
+                        sent_history.add(trade_id)
+                        new_count += 1
+
+            # 2. 전월세 실거래가 조회
+            items_rent = fetch_data(url_rent, apt["lawd_cd"], deal_ymd)
+            for item in items_rent:
+                apt_name = str(item.get("aptNm", ""))
+                if apt["name"] in apt_name:
+                    monthly = str(item.get("monthlyAmount", "0")).strip()
+                    rent_type = "월세" if monthly not in ["0", ""] else "전세"
+                    deposit = str(item.get("deposit", "")).strip()
+                    rent_id = f"RENT_{apt['lawd_cd']}_{apt_name}_{item.get('dealYear')}{str(item.get('dealMonth')).zfill(2)}{str(item.get('dealDay')).zfill(2)}_{item.get('floor')}_{deposit}_{monthly}"
+                    if rent_id not in sent_history:
+                        price_info = f"보증금 {deposit}만원"
+                        if rent_type == "월세":
+                            price_info += f" / 월세 {monthly}만원"
+
+                        msg = (
+                            f"📋 <b>[{rent_type} 실거래] {apt['display_name']} ({apt_name})</b>\n"
+                            f"• 계약일: {item.get('dealYear')}년 {item.get('dealMonth')}월 {item.get('dealDay')}일\n"
+                            f"• 금액: <b>{price_info}</b>\n"
+                            f"• 전용면적: {item.get('excluUseAr')}㎡ ({item.get('floor')}층)"
+                        )
+                        send_telegram_message(msg)
+                        sent_history.add(rent_id)
+                        new_count += 1
+
+    save_history(sent_history)
+    print(f"조회 완료: 신규 전송 {new_count}건")
+
+if __name__ == "__main__":
+    run()
