@@ -8,7 +8,7 @@ API_KEY = os.environ.get("DATA_GO_KR_API_KEY", "").strip()
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 
-# 모니터링 관심단지 3곳
+# 모니터링 대상 단지 3곳
 TARGET_APTS = [
     {
         "keywords": ["건영"],
@@ -16,12 +16,12 @@ TARGET_APTS = [
         "lawd_cd": "11470"   # 서울 양천구
     },
     {
-        "keywords": ["금호어울림베르티스", "금호어울림"],
+        "keywords": ["금호어울림", "금호", "베르티스"],
         "display_name": "여주역 금호어울림베르티스",
         "lawd_cd": "41670"   # 경기 여주시
     },
     {
-        "keywords": ["목련(한양)", "한양(목련)", "한양목련", "목련한양"],
+        "keywords": ["한양목련", "목련한양", "한양", "목련"],
         "display_name": "산본 한양목련아파트",
         "lawd_cd": "41410"   # 경기 군포시 (산본동)
     }
@@ -51,13 +51,13 @@ def send_telegram_message(text):
         print(f"전송 실패: {e}")
 
 def get_target_ymds():
-    # 최근 2개월(전월, 당월) 조회
+    # 최근 3개월 조회 (7월, 8월, 9월)
     ymds = []
     now = datetime.datetime.now()
     cur_year = now.year
     cur_month = now.month
     
-    for i in range(2):
+    for i in range(3):
         m = cur_month - i
         y = cur_year
         if m <= 0:
@@ -80,8 +80,10 @@ def fetch_data(base_url, lawd_cd, deal_ymd):
         return []
 
 def is_matched_apt(apt_name, keywords):
+    clean_name = str(apt_name).replace(" ", "").replace("(", "").replace(")", "")
     for kw in keywords:
-        if kw in apt_name:
+        clean_kw = kw.replace(" ", "").replace("(", "").replace(")", "")
+        if clean_kw in clean_name:
             return True
     return False
 
@@ -140,7 +142,7 @@ def run():
                         sent_history.add(rent_id)
                         new_count += 1
 
-    # ── 신규 거래가 없을 경우 정기 안내 메시지 전송 ──
+    # 신규 거래가 없을 경우 정기 안내 메시지
     if new_count == 0:
         no_trade_msg = (
             f"📢 <b>[{current_time_str} 정기 브리핑]</b>\n"
