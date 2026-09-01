@@ -8,11 +8,23 @@ API_KEY = os.environ.get("DATA_GO_KR_API_KEY", "").strip()
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 
-# 모니터링 단지 3곳 (법정동 시군구코드)
+# 모니터링 단지 3곳 (정확한 시군구코드 및 매칭 키워드)
 TARGET_APTS = [
-    {"name": "건영", "display_name": "목동 건영아파트", "lawd_cd": "11470"},               # 서울 양천구
-    {"name": "금호", "display_name": "여주역 금호어울림베르티스", "lawd_cd": "41670"},     # 경기 여주시
-    {"name": "목련", "display_name": "한양목련아파트", "lawd_cd": "41173"}                 # 경기 안양시 동안구
+    {
+        "keywords": ["건영"],
+        "display_name": "목동 건영아파트",
+        "lawd_cd": "11470"   # 서울 양천구
+    },
+    {
+        "keywords": ["금호어울림베르티스", "금호어울림"],
+        "display_name": "여주역 금호어울림베르티스",
+        "lawd_cd": "41670"   # 경기 여주시
+    },
+    {
+        "keywords": ["목련(한양)", "한양(목련)", "한양목련", "목련한양"],
+        "display_name": "산본 한양목련아파트",
+        "lawd_cd": "41410"   # 경기 군포시 (산본동)
+    }
 ]
 
 HISTORY_FILE = "sent_trades.json"
@@ -39,13 +51,13 @@ def send_telegram_message(text):
         print(f"전송 실패: {e}")
 
 def get_target_ymds():
-    # 최근 3개월 목록 (YYYYMM)
+    # 최근 2개월(전월, 당월) 조회
     ymds = []
     now = datetime.datetime.now()
     cur_year = now.year
     cur_month = now.month
     
-    for i in range(3):
+    for i in range(2):
         m = cur_month - i
         y = cur_year
         if m <= 0:
@@ -55,7 +67,6 @@ def get_target_ymds():
     return ymds
 
 def fetch_data(base_url, lawd_cd, deal_ymd):
-    # API 키 왜곡을 방지하기 위한 직접 URL 조합
     req_url = f"{base_url}?serviceKey={API_KEY}&LAWD_CD={lawd_cd}&DEAL_YMD={deal_ymd}&numOfRows=500"
     try:
         res = requests.get(req_url, timeout=15)
@@ -67,6 +78,12 @@ def fetch_data(base_url, lawd_cd, deal_ymd):
     except Exception as e:
         print(f"API 요청 실패 ({lawd_cd}, {deal_ymd}): {e}")
         return []
+
+def is_matched_apt(apt_name, keywords):
+    for kw in keywords:
+        if kw in apt_name:
+            return True
+    return False
 
 def run():
     sent_history = load_history()
@@ -84,7 +101,7 @@ def run():
             items_trade = fetch_data(url_trade, apt["lawd_cd"], deal_ymd)
             for item in items_trade:
                 apt_name = str(item.get("aptNm", ""))
-                if apt["name"] in apt_name:
+                if is_matched_apt(apt_name, apt["keywords"]):
                     trade_id = f"TRADE_{apt['lawd_cd']}_{apt_name}_{item.get('dealYear')}{str(item.get('dealMonth')).zfill(2)}{str(item.get('dealDay')).zfill(2)}_{item.get('floor')}_{str(item.get('dealAmount', '')).strip()}"
                     if trade_id not in sent_history:
                         msg = (
@@ -102,7 +119,7 @@ def run():
             items_rent = fetch_data(url_rent, apt["lawd_cd"], deal_ymd)
             for item in items_rent:
                 apt_name = str(item.get("aptNm", ""))
-                if apt["name"] in apt_name:
+                if is_matched_apt(apt_name, apt["keywords"]):
                     monthly = str(item.get("monthlyAmount", "0")).strip()
                     rent_type = "월세" if monthly not in ["0", ""] else "전세"
                     deposit = str(item.get("deposit", "")).strip()
