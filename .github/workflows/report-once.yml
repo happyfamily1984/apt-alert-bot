@@ -1,0 +1,35 @@
+name: One-off Report
+
+on:
+  push:
+    branches: [claude/real-estate-notification-settings-te8loz]
+    paths: ['report/**', '.github/workflows/report-once.yml']
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - name: 원본 데이터 수집
+        if: hashFiles('report/SEND') == ''
+        env:
+          DATA_GO_KR_API_KEY: ${{ secrets.DATA_GO_KR_API_KEY }}
+        run: python report/collect.py
+      - uses: actions/upload-artifact@v4
+        if: hashFiles('report/SEND') == ''
+        with:
+          name: report-raw
+          path: report_raw.json
+      - name: 텔레그램으로 보고서 전송
+        if: hashFiles('report/SEND') != ''
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          curl -sS -F chat_id="$TELEGRAM_CHAT_ID" -F document=@report/apt_report.html \
+            -F caption="$(cat report/SEND)" \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" | python -c "import sys,json; r=json.load(sys.stdin); print(r.get('ok'), r.get('description',''))"
