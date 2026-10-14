@@ -8,6 +8,8 @@ on:
 jobs:
   report:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -19,11 +21,14 @@ jobs:
         env:
           DATA_GO_KR_API_KEY: ${{ secrets.DATA_GO_KR_API_KEY }}
         run: python report/collect.py
-      - uses: actions/upload-artifact@v4
+      - name: 수집 결과 커밋
         if: hashFiles('report/SEND') == ''
-        with:
-          name: report-raw
-          path: report_raw.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add report/raw.json.gz
+          git commit -m "보고서용 원본 데이터 수집 결과"
+          git push
       - name: 텔레그램으로 보고서 전송
         if: hashFiles('report/SEND') != ''
         env:
