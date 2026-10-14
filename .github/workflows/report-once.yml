@@ -20,7 +20,7 @@ jobs:
         if: hashFiles('report/SEND') == ''
         env:
           DATA_GO_KR_API_KEY: ${{ secrets.DATA_GO_KR_API_KEY }}
-        run: python report/collect.py
+        run: python report/probe.py
       - name: 수집 결과 커밋
         if: hashFiles('report/SEND') == ''
         run: |
