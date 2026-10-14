@@ -1,31 +1,40 @@
-"""누락분 재수집 + 단지정보 API 응답 확인."""
+"""단지정보(세대수) API 경로 탐색."""
 import gzip, json, os, sys
+import requests
 sys.path.insert(0, os.path.dirname(__file__))
 import collect
 
 raw = json.load(gzip.open("report/raw.json.gz", "rt", encoding="utf-8"))
-for kind in ("trade", "rent"):
-    for lawd, months in raw[kind].items():
-        for ymd, items in months.items():
-            if not items:
-                months[ymd] = collect.fetch_rtms(kind, lawd, ymd)
-
 probe = {}
-for name, url, params in [
-    ("list3_sgg", "https://apis.data.go.kr/1613000/AptListService3/getSigunguAptList3", {"sigunguCode": "41410", "numOfRows": 5, "pageNo": 1}),
-    ("list3_bjd", "https://apis.data.go.kr/1613000/AptListService3/getLegaldongAptList3", {"bjdCode": "4141010400", "numOfRows": 5, "pageNo": 1}),
-    ("list2_sgg", "https://apis.data.go.kr/1613000/AptListService2/getSigunguAptList", {"sigunguCode": "41410", "numOfRows": 5, "pageNo": 1}),
-    ("basis4", "https://apis.data.go.kr/1613000/AptBasisInfoServiceV4/getAphusBassInfoV4", {"kaptCode": "A41085601"}),
-    ("basis3", "https://apis.data.go.kr/1613000/AptBasisInfoServiceV3/getAphusBassInfoV3", {"kaptCode": "A41085601"}),
-]:
+for pid in ["15058453", "15058467", "15057332", "15058476", "15044934", "15117209", "15151846"]:
     try:
-        r = collect.get(url, {**params, "_type": "json"})
-        probe[name] = f"{r.status_code} {r.text[:600]}"
+        r = requests.get(f"https://www.data.go.kr/catalog/{pid}/openapi.json", timeout=20)
+        j = r.json()
+        probe[f"cat_{pid}"] = {"title": j.get("info", {}).get("title"), "host": j.get("host"), "base": j.get("basePath"),
+                               "servers": j.get("servers"), "paths": list((j.get("paths") or {}).keys())}
     except Exception as e:
-        probe[name] = f"ERR {e}"
-raw["probe"] = probe
-raw["log"] += collect.log
+        probe[f"cat_{pid}"] = f"ERR {e} {r.text[:200] if 'r' in locals() else ''}"
+cands = []
+for k, v in probe.items():
+    if isinstance(v, dict) and v.get("paths"):
+        base = (v.get("servers") or [{}])[0].get("url") if v.get("servers") else f"https://{v.get('host')}{v.get('base') or ''}"
+        for p in v["paths"]:
+            cands.append(base.rstrip("/") + p)
+probe["calls"] = {}
+for url in cands:
+    params = {"_type": "json", "numOfRows": 3, "pageNo": 1}
+    if "Legaldong" in url or "bjd" in url.lower():
+        params["bjdCode"] = "4141010400"
+    elif "Sigungu" in url:
+        params["sigunguCode"] = "41410"
+    elif "Bass" in url or "Basis" in url or "Dtl" in url:
+        params["kaptCode"] = "A41085601"
+    try:
+        r = collect.get(url, params)
+        probe["calls"][url] = f"{r.status_code} {r.text[:500]}"
+    except Exception as e:
+        probe["calls"][url] = f"ERR {e}"
+raw["probe2"] = probe
 with gzip.open("report/raw.json.gz", "wt", encoding="utf-8") as f:
     json.dump(raw, f, ensure_ascii=False)
-print(json.dumps(probe, ensure_ascii=False, indent=1))
-print("\n".join(collect.log))
+print(json.dumps(probe, ensure_ascii=False, indent=1)[:5000])
