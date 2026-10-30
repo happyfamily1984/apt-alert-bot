@@ -42,13 +42,21 @@ def save_history(history):
     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
         json.dump(list(history), f, ensure_ascii=False, indent=2)
 
+def mask_secrets(msg):
+    # 공개 저장소에서는 Actions 로그도 공개되므로 오류 메시지 속 키/토큰을 가린다
+    msg = str(msg)
+    for secret in (API_KEY, TELEGRAM_TOKEN):
+        if secret:
+            msg = msg.replace(secret, "***")
+    return msg
+
 def send_telegram_message(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"}
     try:
         requests.post(url, json=payload, timeout=10)
     except Exception as e:
-        print(f"전송 실패: {e}")
+        print(f"전송 실패: {mask_secrets(e)}")
 
 def get_target_ymds():
     # 최근 3개월 조회 (YYYYMM)
@@ -77,7 +85,7 @@ def fetch_data(base_url, lawd_cd, deal_ymd):
             items = [items]
         return items
     except Exception as e:
-        print(f"API 요청 실패 ({lawd_cd}, {deal_ymd}): {e}")
+        print(f"API 요청 실패 ({lawd_cd}, {deal_ymd}): {mask_secrets(e)}")
         return []
 
 def is_matched_apt(apt_name, keywords):
